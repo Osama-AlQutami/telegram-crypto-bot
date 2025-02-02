@@ -36,6 +36,28 @@ function formatPrice(price) {
     }
 }
 
+// 🟢 دالة لإرسال رسالة إلى `Telegram`
+async function sendTelegramMessage(message) {
+    const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+
+    const payload = {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'Markdown'
+    };
+
+    try {
+        await fetch(telegramUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        console.log('✅ تم إرسال الرسالة بنجاح!');
+    } catch (error) {
+        console.error('❌ فشل إرسال الرسالة:', error);
+    }
+}
+
 // 🟡 دالة لجلب سعر العملة
 async function getTokenPrice(tokenAddress) {
     try {
@@ -59,32 +81,10 @@ async function getTokenPrice(tokenAddress) {
     }
 }
 
-// 🟢 دالة لإرسال رسالة إلى `Telegram`
-async function sendTelegramMessage(message) {
-    const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-
-    const payload = {
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: 'Markdown'
-    };
-
-    try {
-        await fetch(telegramUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        console.log('✅ تم إرسال الرسالة بنجاح!');
-    } catch (error) {
-        console.error('❌ فشل إرسال الرسالة:', error);
-    }
-}
-
-// 🔵 الوظيفة الرئيسية لجلب الأسعار ومقارنة التغيرات
+// 🔵 الوظيفة الرئيسية لفحص الأسعار ومقارنة التغيرات
 async function checkPrices() {
     let hasAlert = false;
-    let priceMessage = "📢 *تحديث أسعار العملات* 📢\n\n";
+    let priceMessage = "🚨 *تنبيه هام!* 🚨\n\n";
 
     for (let tokenAddress of TOKEN_ADDRESSES) {
         const tokenData = await getTokenPrice(tokenAddress);
@@ -109,41 +109,28 @@ async function checkPrices() {
 
             // تحديث السعر المخزن
             storedPrices[tokenAddress] = tokenData.price;
-            priceMessage += tokenMessage + "\n\n";
+
+            // إذا كان هناك تغيير 10%، أضف الرسالة
+            if (hasAlert) {
+                priceMessage += tokenMessage + "\n\n";
+            }
         }
     }
 
     // حفظ الأسعار الجديدة في `prices.json`
     fs.writeFileSync(PRICES_FILE, JSON.stringify(storedPrices, null, 2));
 
-    // إرسال التحديث فقط إذا كان هناك تغيير بنسبة 10%
+    // إذا كان هناك تغيير بنسبة 10% أو أكثر، يتم إرسال التنبيه مع 5 تنبيهات قبل الرسالة
     if (hasAlert) {
-        priceMessage = "🚨 *تنبيه هام!* 🚨\n\n" + priceMessage;
+        for (let i = 0; i < 5; i++) {
+            await sendTelegramMessage("🚨 تنبيه 🚨");
+        }
         await sendTelegramMessage(priceMessage);
     }
 }
 
-// 🔵 وظيفة إرسال الأسعار كل ساعة
-async function sendHourlyUpdate() {
-    let hourlyMessage = "⏰ *تحديث الأسعار (كل ساعة)* ⏰\n\n";
-
-    for (let tokenAddress of TOKEN_ADDRESSES) {
-        const tokenData = await getTokenPrice(tokenAddress);
-
-        if (tokenData) {
-            const formattedPrice = formatPrice(tokenData.price);
-            hourlyMessage += `🏷️ *${tokenData.symbol}* → ${formattedPrice} 📈 (${tokenData.exchange})\n\n`;
-        }
-    }
-
-    hourlyMessage += "📅 *التحديث التالي بعد ساعة* ⏳";
-    await sendTelegramMessage(hourlyMessage);
-}
-
-// ⏰ جدولة الفحوصات
-setInterval(checkPrices, 5 * 60 * 1000); // 🔍 فحص السعر كل 5 دقائق
-setInterval(sendHourlyUpdate, 60 * 60 * 1000); // ⏰ إرسال الأسعار كل ساعة
+// ⏰ تشغيل الفحص كل 5 دقائق
+setInterval(checkPrices, 5 * 60 * 1000);
 
 // 🔥 تشغيل البوت فورًا عند البدء
 checkPrices();
-sendHourlyUpdate();
